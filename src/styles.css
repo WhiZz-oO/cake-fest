@@ -1183,10 +1183,10 @@ button, input, select {
 
 /* STICKY BOTTOM CART BAR & VIEW CART DRAWER */
 .has-sticky-cart {
-  padding-bottom: 78px;
+  padding-bottom: 96px;
 }
 .has-sticky-cart .site-footer {
-  padding-bottom: 96px;
+  padding-bottom: 115px;
 }
 .selection-count-clickable {
   cursor: pointer;
@@ -1205,17 +1205,28 @@ button, input, select {
   border: 0;
 }
 .sticky-cart-bar {
-  position: fixed;
-  bottom: 0;
-  left: 0;
-  right: 0;
-  z-index: 99;
+  position: fixed !important;
+  bottom: max(14px, calc(10px + env(safe-area-inset-bottom, 0px))) !important;
+  left: 16px !important;
+  right: 16px !important;
+  max-width: 680px;
+  margin: 0 auto !important;
+  z-index: 9999 !important;
   background: var(--wine-dark);
   color: #fffdf9;
-  border-top: 2px solid var(--gold);
-  box-shadow: 0 -8px 30px rgba(53, 16, 26, 0.3);
+  border: 1.5px solid var(--gold);
+  border-radius: 12px;
+  box-shadow: 0 10px 35px rgba(30, 10, 15, 0.45);
   padding: 10px 18px;
-  animation: slideUpBar 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+  display: block !important;
+  visibility: visible !important;
+  opacity: 1 !important;
+  pointer-events: auto !important;
+  -webkit-transform: translateZ(0);
+  transform: translateZ(0);
+  -webkit-backface-visibility: hidden;
+  backface-visibility: hidden;
+  will-change: transform;
 }
 .sticky-cart-inner {
   max-width: 1180px;
@@ -1297,7 +1308,7 @@ button, input, select {
   background: rgba(30, 12, 12, 0.65);
   backdrop-filter: blur(4px);
   -webkit-backdrop-filter: blur(4px);
-  z-index: 200;
+  z-index: 10000;
   display: flex;
   justify-content: flex-end;
   align-items: stretch;
@@ -1489,13 +1500,17 @@ button, input, select {
     to { transform: translateY(0); }
   }
   .sticky-cart-bar {
-    padding: 8px 14px;
+    left: 10px !important;
+    right: 10px !important;
+    bottom: max(10px, calc(6px + env(safe-area-inset-bottom, 0px))) !important;
+    padding: 8px 12px !important;
+    border-radius: 10px;
   }
   .sticky-cart-price {
     font-size: 16px;
   }
   .sticky-cart-btn {
-    padding: 10px 14px;
+    padding: 9px 12px;
     font-size: 12px;
   }
 }
