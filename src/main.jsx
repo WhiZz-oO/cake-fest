@@ -114,7 +114,7 @@ function App() {
         {totalItems > 0 ? (
           <button type="button" className="nav-cta nav-cta-cart" onClick={() => setCartOpen(true)}>
             <ShoppingBag size={15} />
-            <span>View Cart ({totalItems})</span>
+            <span>Cart ({totalItems})</span>
           </button>
         ) : (
           <a className="nav-cta" href="#cakes">Order cakes <ArrowRight size={15} /></a>
