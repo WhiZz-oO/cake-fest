@@ -6,8 +6,8 @@
  * 1. Open your Google Spreadsheet (Extensions > Apps Script).
  * 2. Replace Code.gs with this entire file.
  * 3. In the toolbar, select "setupSheets" and click "Run".
- *    This will create column headers in "Form Responses 1" (or "Orders")
- *    and also create the live "Cake Summary" dashboard!
+ *    This will create/update column headers in "Form Responses 1" (or "Orders")
+ *    and also create/update the live "Cake Summary" dashboard!
  * 4. Click Deploy > Manage Deployments > Edit (Pencil) > Version: New version > Deploy.
  */
 
@@ -30,39 +30,56 @@ const DEFAULT_SETTINGS = {
 };
 
 const ORDER_HEADERS = [
-  'Order ID',
-  'Submitted At',
-  'Name',
-  'House Name',
-  'Phone Number',
-  'Ward Number',
-  'Carrot (½ kg)',
-  'Carrot (1 kg)',
-  'Pineapple (½ kg)',
-  'Pineapple (1 kg)',
-  'Marble (½ kg)',
-  'Marble (1 kg)',
-  'Plum (½ kg)',
-  'Plum (1 kg)',
-  'Total Cakes',
-  'Total Amount (INR)',
-  'Pickup Date',
-  'Order Status'
+  'Order ID',           // Col 1 (A)
+  'Submitted At',       // Col 2 (B)
+  'Name',               // Col 3 (C)
+  'House Name',         // Col 4 (D)
+  'Phone Number',       // Col 5 (E)
+  'Ward Number',        // Col 6 (F)
+  'Carrot (½ kg)',      // Col 7 (G)
+  'Carrot (1 kg)',      // Col 8 (H)
+  'Pineapple (½ kg)',   // Col 9 (I)
+  'Pineapple (1 kg)',   // Col 10 (J)
+  'Marble (½ kg)',      // Col 11 (K)
+  'Marble (1 kg)',      // Col 12 (L)
+  'Plum (½ kg)',        // Col 13 (M)
+  'Plum (1 kg)',        // Col 14 (N)
+  'Total Cakes',        // Col 15 (O)
+  'Total Amount (INR)', // Col 16 (P)
+  'Pickup Date',        // Col 17 (Q)
+  'Order Status',       // Col 18 (R)
+  'Payment Method',     // Col 19 (S)
+  'Delivered At'        // Col 20 (T)
+];
+
+const CAKE_SPECS = [
+  { id: 'carrot-05', name: 'Carrot Cake', weight: '½ kg', colIndex: 7 },
+  { id: 'carrot-1', name: 'Carrot Cake', weight: '1 kg', colIndex: 8 },
+  { id: 'pineapple-05', name: 'Pineapple Cake', weight: '½ kg', colIndex: 9 },
+  { id: 'pineapple-1', name: 'Pineapple Cake', weight: '1 kg', colIndex: 10 },
+  { id: 'marble-05', name: 'Marble Cake', weight: '½ kg', colIndex: 11 },
+  { id: 'marble-1', name: 'Marble Cake', weight: '1 kg', colIndex: 12 },
+  { id: 'plum-05', name: 'Plum Cake', weight: '½ kg', colIndex: 13 },
+  { id: 'plum-1', name: 'Plum Cake', weight: '1 kg', colIndex: 14 }
 ];
 
 function doGet(e) {
   const action = e && e.parameter ? e.parameter.action : '';
   if (action === 'config') return jsonResponse(getPublicConfig());
+  if (action === 'getOrders') return jsonResponse(getOrdersList());
   return jsonResponse({ success: true, service: 'SMYM Christmas Cake Fest order service' });
 }
 
 function doPost(e) {
   try {
     const payload = JSON.parse((e && e.postData && e.postData.contents) || '{}');
-    if (payload.action !== 'submitOrder') return jsonResponse({ success: false, message: 'Unknown action.' });
-    return jsonResponse(saveOrder(payload.order));
+    if (payload.action === 'submitOrder') return jsonResponse(saveOrder(payload.order));
+    if (payload.action === 'getOrders') return jsonResponse(getOrdersList());
+    if (payload.action === 'markDelivered') return jsonResponse(markOrderDelivered(payload.orderId, payload.paymentMethod));
+    if (payload.action === 'markPending') return jsonResponse(markOrderPending(payload.orderId));
+    return jsonResponse({ success: false, message: 'Unknown action: ' + payload.action });
   } catch (err) {
-    return jsonResponse({ success: false, message: err.message || 'Could not process the order.' });
+    return jsonResponse({ success: false, message: err.message || 'Could not process the request.' });
   }
 }
 
@@ -83,17 +100,24 @@ function setupSheets() {
       .setFontWeight('bold')
       .setBackground('#4b1724')
       .setFontColor('#ffffff');
+  } else {
+    // Ensure all columns (including Payment Method and Delivered At) exist in header
+    ensureDeliveryHeaders_(orderSheet);
   }
 
   // Also format 'Orders' if present and empty
   const altSheet = ss.getSheetByName('Orders');
-  if (altSheet && altSheet.getName() !== orderSheet.getName() && altSheet.getLastRow() === 0) {
-    altSheet.getRange(1, 1, 1, ORDER_HEADERS.length).setValues([ORDER_HEADERS]);
-    altSheet.setFrozenRows(1);
-    altSheet.getRange(1, 1, 1, ORDER_HEADERS.length)
-      .setFontWeight('bold')
-      .setBackground('#4b1724')
-      .setFontColor('#ffffff');
+  if (altSheet && altSheet.getName() !== orderSheet.getName()) {
+    if (altSheet.getLastRow() === 0) {
+      altSheet.getRange(1, 1, 1, ORDER_HEADERS.length).setValues([ORDER_HEADERS]);
+      altSheet.setFrozenRows(1);
+      altSheet.getRange(1, 1, 1, ORDER_HEADERS.length)
+        .setFontWeight('bold')
+        .setBackground('#4b1724')
+        .setFontColor('#ffffff');
+    } else {
+      ensureDeliveryHeaders_(altSheet);
+    }
   }
 
   // 2. Setup Products sheet
@@ -126,7 +150,23 @@ function setupSheets() {
   // 4. Setup Live Cake Summary tab (Auto-calculates totals for Bakery and Wards)
   setupSummarySheet_(ss, orderSheet.getName());
 
-  return 'Setup completed! Customer orders will be saved with Name, House Name, Phone Number, Ward Number and individual cake columns.';
+  return 'Setup completed! Customer orders will be saved with Name, House Name, Phone Number, Ward Number and individual cake columns, plus payment & delivery tracking.';
+}
+
+function ensureDeliveryHeaders_(sheet) {
+  const lastCol = sheet.getLastColumn();
+  if (lastCol < 19 || !sheet.getRange(1, 19).getValue()) {
+    sheet.getRange(1, 19).setValue('Payment Method')
+      .setFontWeight('bold')
+      .setBackground('#4b1724')
+      .setFontColor('#ffffff');
+  }
+  if (lastCol < 20 || !sheet.getRange(1, 20).getValue()) {
+    sheet.getRange(1, 20).setValue('Delivered At')
+      .setFontWeight('bold')
+      .setBackground('#4b1724')
+      .setFontColor('#ffffff');
+  }
 }
 
 function setupSummarySheet_(ss, orderSheetName) {
@@ -180,8 +220,20 @@ function setupSummarySheet_(ss, orderSheetName) {
     .setFontColor('#ffffff');
 
   summary.getRange('A17').setFormula(
-    '=QUERY(' + sName + '!A1:R, "SELECT F, COUNT(A), SUM(O), SUM(P) WHERE A IS NOT NULL AND F IS NOT NULL GROUP BY F ORDER BY F LABEL F \'Ward Number\', COUNT(A) \'Total Families Ordered\', SUM(O) \'Total Cakes\', SUM(P) \'Total Amount (INR)\'", 1)'
+    '=QUERY(' + sName + '!A1:T, "SELECT F, COUNT(A), SUM(O), SUM(P) WHERE A IS NOT NULL AND F IS NOT NULL GROUP BY F ORDER BY F LABEL F \'Ward Number\', COUNT(A) \'Total Families Ordered\', SUM(O) \'Total Cakes\', SUM(P) \'Total Amount (INR)\'", 1)'
   );
+}
+
+function getProductPrices_(ss) {
+  const productSheet = ss.getSheetByName('Products');
+  const priceMap = {};
+  if (productSheet && productSheet.getLastRow() > 1) {
+    const rows = productSheet.getRange(2, 1, productSheet.getLastRow() - 1, 4).getValues();
+    rows.forEach(r => {
+      if (r[0]) priceMap[String(r[0])] = Number(r[3]) || 0;
+    });
+  }
+  return priceMap;
 }
 
 function getPublicConfig() {
@@ -200,6 +252,170 @@ function getPublicConfig() {
   }
   const settings = getSettings_();
   return { success: true, products: products.filter(p => p.available), settings };
+}
+
+function getOrdersList() {
+  const ss = getSpreadsheet();
+  const sheet = getOrdersSheet(ss);
+  const lastRow = sheet.getLastRow();
+  if (lastRow <= 1) {
+    return { success: true, orders: [] };
+  }
+
+  ensureDeliveryHeaders_(sheet);
+
+  const numCols = Math.max(sheet.getLastColumn(), 20);
+  const data = sheet.getRange(2, 1, lastRow - 1, numCols).getValues();
+  const productPrices = getProductPrices_(ss);
+
+  const orders = [];
+  for (let i = 0; i < data.length; i++) {
+    const row = data[i];
+    const orderId = String(row[0] || '').trim();
+    if (!orderId) continue;
+
+    const items = [];
+    CAKE_SPECS.forEach(spec => {
+      const qty = Number(row[spec.colIndex - 1]) || 0;
+      if (qty > 0) {
+        const unitPrice = productPrices[spec.id] || 0;
+        items.push({
+          id: spec.id,
+          name: spec.name,
+          weight: spec.weight,
+          quantity: qty,
+          unitPrice: unitPrice,
+          subtotal: unitPrice ? unitPrice * qty : 0
+        });
+      }
+    });
+
+    const submittedAtRaw = row[1];
+    let submittedAt = '';
+    if (submittedAtRaw instanceof Date) {
+      submittedAt = Utilities.formatDate(submittedAtRaw, Session.getScriptTimeZone(), 'yyyy-MM-dd HH:mm');
+    } else {
+      submittedAt = String(submittedAtRaw || '');
+    }
+
+    const deliveredAtRaw = row[19];
+    let deliveredAt = '';
+    if (deliveredAtRaw instanceof Date) {
+      deliveredAt = Utilities.formatDate(deliveredAtRaw, Session.getScriptTimeZone(), 'yyyy-MM-dd HH:mm');
+    } else {
+      deliveredAt = String(deliveredAtRaw || '');
+    }
+
+    orders.push({
+      rowIndex: i + 2,
+      orderId: orderId,
+      submittedAt: submittedAt,
+      name: String(row[2] || '').trim(),
+      houseName: String(row[3] || '').trim(),
+      phone: String(row[4] || '').trim(),
+      ward: Number(row[5]) || '',
+      items: items,
+      totalCakes: Number(row[14]) || 0,
+      totalAmount: Number(row[15]) || 0,
+      pickupDate: row[16] instanceof Date ? Utilities.formatDate(row[16], Session.getScriptTimeZone(), 'yyyy-MM-dd') : String(row[16] || ''),
+      status: String(row[17] || 'New').trim(),
+      paymentMethod: String(row[18] || '').trim(),
+      deliveredAt: deliveredAt
+    });
+  }
+
+  // Reverse so latest orders are listed first
+  orders.reverse();
+  return { success: true, orders: orders };
+}
+
+function markOrderDelivered(orderId, paymentMethod) {
+  if (!orderId) throw new Error('Order ID is required.');
+  const method = paymentMethod === 'GPay' ? 'GPay' : 'Cash';
+
+  const ss = getSpreadsheet();
+  const sheet = getOrdersSheet(ss);
+  const lastRow = sheet.getLastRow();
+  if (lastRow <= 1) throw new Error('No orders found in sheet.');
+
+  ensureDeliveryHeaders_(sheet);
+
+  const lock = LockService.getScriptLock();
+  lock.waitLock(10000);
+  try {
+    const ids = sheet.getRange(2, 1, lastRow - 1, 1).getValues();
+    let targetRow = -1;
+    for (let i = 0; i < ids.length; i++) {
+      if (String(ids[i][0]).trim().toUpperCase() === String(orderId).trim().toUpperCase()) {
+        targetRow = i + 2;
+        break;
+      }
+    }
+
+    if (targetRow === -1) throw new Error('Order not found with reference: ' + orderId);
+
+    const nowStr = Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'yyyy-MM-dd HH:mm:ss');
+
+    // Update Col 18 (Order Status), Col 19 (Payment Method), Col 20 (Delivered At)
+    sheet.getRange(targetRow, 18, 1, 3).setValues([['Delivered', method, nowStr]]);
+
+    // Turn the customer's entire row into GREEN color (#d9ead3 is soft, elegant, highly readable green)
+    const totalCols = Math.max(sheet.getLastColumn(), 20);
+    sheet.getRange(targetRow, 1, 1, totalCols).setBackground('#d9ead3');
+
+    return {
+      success: true,
+      orderId: orderId,
+      status: 'Delivered',
+      paymentMethod: method,
+      deliveredAt: nowStr
+    };
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+function markOrderPending(orderId) {
+  if (!orderId) throw new Error('Order ID is required.');
+
+  const ss = getSpreadsheet();
+  const sheet = getOrdersSheet(ss);
+  const lastRow = sheet.getLastRow();
+  if (lastRow <= 1) throw new Error('No orders found in sheet.');
+
+  ensureDeliveryHeaders_(sheet);
+
+  const lock = LockService.getScriptLock();
+  lock.waitLock(10000);
+  try {
+    const ids = sheet.getRange(2, 1, lastRow - 1, 1).getValues();
+    let targetRow = -1;
+    for (let i = 0; i < ids.length; i++) {
+      if (String(ids[i][0]).trim().toUpperCase() === String(orderId).trim().toUpperCase()) {
+        targetRow = i + 2;
+        break;
+      }
+    }
+
+    if (targetRow === -1) throw new Error('Order not found with reference: ' + orderId);
+
+    // Reset Col 18 (Order Status) to 'New', Col 19 to '', Col 20 to ''
+    sheet.getRange(targetRow, 18, 1, 3).setValues([['New', '', '']]);
+
+    // Reset row background to clean white
+    const totalCols = Math.max(sheet.getLastColumn(), 20);
+    sheet.getRange(targetRow, 1, 1, totalCols).setBackground('#ffffff');
+
+    return {
+      success: true,
+      orderId: orderId,
+      status: 'New',
+      paymentMethod: '',
+      deliveredAt: ''
+    };
+  } finally {
+    lock.releaseLock();
+  }
 }
 
 function saveOrder(order) {
@@ -271,6 +487,8 @@ function saveOrder(order) {
         .setFontWeight('bold')
         .setBackground('#4b1724')
         .setFontColor('#ffffff');
+    } else {
+      ensureDeliveryHeaders_(orderSheet);
     }
 
     orderSheet.appendRow([
@@ -291,7 +509,9 @@ function saveOrder(order) {
       totalQty,
       total,
       settings.pickupDate,
-      'New'
+      'New',
+      '', // Payment Method
+      ''  // Delivered At
     ]);
 
     return { success: true, orderId: orderId };
