@@ -94,6 +94,7 @@ function setupSheets() {
   // 1. Setup Form Responses 1 (or Orders) sheet
   const orderSheet = getOrdersSheet(ss);
   if (orderSheet.getLastRow() === 0) {
+    ensureDeliveryColumns_(orderSheet);
     orderSheet.getRange(1, 1, 1, ORDER_HEADERS.length).setValues([ORDER_HEADERS]);
     orderSheet.setFrozenRows(1);
     orderSheet.getRange(1, 1, 1, ORDER_HEADERS.length)
@@ -101,14 +102,14 @@ function setupSheets() {
       .setBackground('#4b1724')
       .setFontColor('#ffffff');
   } else {
-    // Ensure all columns (including Payment Method and Delivered At) exist in header
-    ensureDeliveryHeaders_(orderSheet);
+    ensureDeliveryColumns_(orderSheet);
   }
 
   // Also format 'Orders' if present and empty
   const altSheet = ss.getSheetByName('Orders');
   if (altSheet && altSheet.getName() !== orderSheet.getName()) {
     if (altSheet.getLastRow() === 0) {
+      ensureDeliveryColumns_(altSheet);
       altSheet.getRange(1, 1, 1, ORDER_HEADERS.length).setValues([ORDER_HEADERS]);
       altSheet.setFrozenRows(1);
       altSheet.getRange(1, 1, 1, ORDER_HEADERS.length)
@@ -116,7 +117,7 @@ function setupSheets() {
         .setBackground('#4b1724')
         .setFontColor('#ffffff');
     } else {
-      ensureDeliveryHeaders_(altSheet);
+      ensureDeliveryColumns_(altSheet);
     }
   }
 
@@ -153,7 +154,11 @@ function setupSheets() {
   return 'Setup completed! Customer orders will be saved with Name, House Name, Phone Number, Ward Number and individual cake columns, plus payment & delivery tracking.';
 }
 
-function ensureDeliveryHeaders_(sheet) {
+function ensureDeliveryColumns_(sheet) {
+  const maxCols = sheet.getMaxColumns();
+  if (maxCols < 20) {
+    sheet.insertColumnsAfter(maxCols, 20 - maxCols);
+  }
   const lastCol = sheet.getLastColumn();
   if (lastCol < 19 || !sheet.getRange(1, 19).getValue()) {
     sheet.getRange(1, 19).setValue('Payment Method')
@@ -255,78 +260,81 @@ function getPublicConfig() {
 }
 
 function getOrdersList() {
-  const ss = getSpreadsheet();
-  const sheet = getOrdersSheet(ss);
-  const lastRow = sheet.getLastRow();
-  if (lastRow <= 1) {
-    return { success: true, orders: [] };
-  }
+  try {
+    const ss = getSpreadsheet();
+    const sheet = getOrdersSheet(ss);
+    const lastRow = sheet.getLastRow();
+    if (lastRow <= 1) {
+      return { success: true, orders: [] };
+    }
 
-  ensureDeliveryHeaders_(sheet);
+    const lastCol = sheet.getLastColumn();
+    // Read only existing columns safely
+    const data = sheet.getRange(2, 1, lastRow - 1, lastCol).getValues();
+    const productPrices = getProductPrices_(ss);
 
-  const numCols = Math.max(sheet.getLastColumn(), 20);
-  const data = sheet.getRange(2, 1, lastRow - 1, numCols).getValues();
-  const productPrices = getProductPrices_(ss);
+    const orders = [];
+    for (let i = 0; i < data.length; i++) {
+      const row = data[i];
+      const orderId = String(row[0] || '').trim();
+      if (!orderId) continue;
 
-  const orders = [];
-  for (let i = 0; i < data.length; i++) {
-    const row = data[i];
-    const orderId = String(row[0] || '').trim();
-    if (!orderId) continue;
+      const items = [];
+      CAKE_SPECS.forEach(spec => {
+        const colIdx = spec.colIndex - 1;
+        const qty = colIdx < lastCol ? (Number(row[colIdx]) || 0) : 0;
+        if (qty > 0) {
+          const unitPrice = productPrices[spec.id] || 0;
+          items.push({
+            id: spec.id,
+            name: spec.name,
+            weight: spec.weight,
+            quantity: qty,
+            unitPrice: unitPrice,
+            subtotal: unitPrice ? unitPrice * qty : 0
+          });
+        }
+      });
 
-    const items = [];
-    CAKE_SPECS.forEach(spec => {
-      const qty = Number(row[spec.colIndex - 1]) || 0;
-      if (qty > 0) {
-        const unitPrice = productPrices[spec.id] || 0;
-        items.push({
-          id: spec.id,
-          name: spec.name,
-          weight: spec.weight,
-          quantity: qty,
-          unitPrice: unitPrice,
-          subtotal: unitPrice ? unitPrice * qty : 0
-        });
+      const submittedAtRaw = row[1];
+      let submittedAt = '';
+      if (submittedAtRaw instanceof Date) {
+        submittedAt = Utilities.formatDate(submittedAtRaw, Session.getScriptTimeZone(), 'yyyy-MM-dd HH:mm');
+      } else {
+        submittedAt = String(submittedAtRaw || '');
       }
-    });
 
-    const submittedAtRaw = row[1];
-    let submittedAt = '';
-    if (submittedAtRaw instanceof Date) {
-      submittedAt = Utilities.formatDate(submittedAtRaw, Session.getScriptTimeZone(), 'yyyy-MM-dd HH:mm');
-    } else {
-      submittedAt = String(submittedAtRaw || '');
+      const deliveredAtRaw = lastCol >= 20 ? row[19] : '';
+      let deliveredAt = '';
+      if (deliveredAtRaw instanceof Date) {
+        deliveredAt = Utilities.formatDate(deliveredAtRaw, Session.getScriptTimeZone(), 'yyyy-MM-dd HH:mm');
+      } else {
+        deliveredAt = String(deliveredAtRaw || '');
+      }
+
+      orders.push({
+        rowIndex: i + 2,
+        orderId: orderId,
+        submittedAt: submittedAt,
+        name: String(row[2] || '').trim(),
+        houseName: String(row[3] || '').trim(),
+        phone: String(row[4] || '').trim(),
+        ward: Number(row[5]) || '',
+        items: items,
+        totalCakes: lastCol >= 15 ? (Number(row[14]) || 0) : 0,
+        totalAmount: lastCol >= 16 ? (Number(row[15]) || 0) : 0,
+        pickupDate: lastCol >= 17 ? (row[16] instanceof Date ? Utilities.formatDate(row[16], Session.getScriptTimeZone(), 'yyyy-MM-dd') : String(row[16] || '')) : '',
+        status: lastCol >= 18 ? String(row[17] || 'New').trim() : 'New',
+        paymentMethod: lastCol >= 19 ? String(row[18] || '').trim() : '',
+        deliveredAt: deliveredAt
+      });
     }
 
-    const deliveredAtRaw = row[19];
-    let deliveredAt = '';
-    if (deliveredAtRaw instanceof Date) {
-      deliveredAt = Utilities.formatDate(deliveredAtRaw, Session.getScriptTimeZone(), 'yyyy-MM-dd HH:mm');
-    } else {
-      deliveredAt = String(deliveredAtRaw || '');
-    }
-
-    orders.push({
-      rowIndex: i + 2,
-      orderId: orderId,
-      submittedAt: submittedAt,
-      name: String(row[2] || '').trim(),
-      houseName: String(row[3] || '').trim(),
-      phone: String(row[4] || '').trim(),
-      ward: Number(row[5]) || '',
-      items: items,
-      totalCakes: Number(row[14]) || 0,
-      totalAmount: Number(row[15]) || 0,
-      pickupDate: row[16] instanceof Date ? Utilities.formatDate(row[16], Session.getScriptTimeZone(), 'yyyy-MM-dd') : String(row[16] || ''),
-      status: String(row[17] || 'New').trim(),
-      paymentMethod: String(row[18] || '').trim(),
-      deliveredAt: deliveredAt
-    });
+    orders.reverse();
+    return { success: true, orders: orders };
+  } catch (err) {
+    return { success: false, message: 'Error reading orders: ' + err.message };
   }
-
-  // Reverse so latest orders are listed first
-  orders.reverse();
-  return { success: true, orders: orders };
 }
 
 function markOrderDelivered(orderId, paymentMethod) {
@@ -338,7 +346,7 @@ function markOrderDelivered(orderId, paymentMethod) {
   const lastRow = sheet.getLastRow();
   if (lastRow <= 1) throw new Error('No orders found in sheet.');
 
-  ensureDeliveryHeaders_(sheet);
+  ensureDeliveryColumns_(sheet);
 
   const lock = LockService.getScriptLock();
   lock.waitLock(10000);
@@ -383,7 +391,7 @@ function markOrderPending(orderId) {
   const lastRow = sheet.getLastRow();
   if (lastRow <= 1) throw new Error('No orders found in sheet.');
 
-  ensureDeliveryHeaders_(sheet);
+  ensureDeliveryColumns_(sheet);
 
   const lock = LockService.getScriptLock();
   lock.waitLock(10000);
@@ -481,6 +489,7 @@ function saveOrder(order) {
 
     // If sheet has no header, add it
     if (orderSheet.getLastRow() === 0) {
+      ensureDeliveryColumns_(orderSheet);
       orderSheet.getRange(1, 1, 1, ORDER_HEADERS.length).setValues([ORDER_HEADERS]);
       orderSheet.setFrozenRows(1);
       orderSheet.getRange(1, 1, 1, ORDER_HEADERS.length)
@@ -488,7 +497,7 @@ function saveOrder(order) {
         .setBackground('#4b1724')
         .setFontColor('#ffffff');
     } else {
-      ensureDeliveryHeaders_(orderSheet);
+      ensureDeliveryColumns_(orderSheet);
     }
 
     orderSheet.appendRow([

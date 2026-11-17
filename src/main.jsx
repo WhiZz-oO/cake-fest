@@ -108,7 +108,10 @@ function App() {
 
   // Fetch orders for Delivery Desk
   const fetchOrders = async () => {
-    if (!API_URL) return;
+    if (!API_URL) {
+      setFetchError('VITE_APPS_SCRIPT_URL is not configured.');
+      return;
+    }
     setLoadingOrders(true);
     setFetchError('');
     try {
@@ -116,20 +119,27 @@ function App() {
       const data = await res.json();
       if (data.success && Array.isArray(data.orders)) {
         setOrders(data.orders);
-      } else {
-        // Fallback to POST
-        const resPost = await fetch(API_URL, {
-          method: 'POST',
-          headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-          body: JSON.stringify({ action: 'getOrders' })
-        });
-        const dataPost = await resPost.json();
-        if (dataPost.success && Array.isArray(dataPost.orders)) {
-          setOrders(dataPost.orders);
-        } else {
-          throw new Error(data.message || dataPost.message || 'Could not fetch orders.');
-        }
+        return;
       }
+      
+      // Fallback to POST
+      const resPost = await fetch(API_URL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+        body: JSON.stringify({ action: 'getOrders' })
+      });
+      const dataPost = await resPost.json();
+      if (dataPost.success && Array.isArray(dataPost.orders)) {
+        setOrders(dataPost.orders);
+        return;
+      }
+
+      if (dataPost.message === 'Unknown action.' || data.service) {
+        throw new Error(
+          'Google Apps Script needs to be updated with the latest Code.gs: In your Google Sheet, open Extensions > Apps Script, paste the updated Code.gs, then click Deploy > Manage deployments > Edit (pencil) > Version: New version > Deploy.'
+        );
+      }
+      throw new Error(data.message || dataPost.message || 'Could not fetch orders from Google Sheet.');
     } catch (err) {
       setFetchError(err.message || 'Could not load orders from Google Sheets.');
     } finally {
